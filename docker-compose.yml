@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  candles:
+    build:
+      context: .
+      dockerfile: candles/Dockerfile
+    ports:
+      - "50051:50051"
+    environment:
+      - LOG_LEVEL=info
+    command: [
+      "./candles",
+      "--interval=5",
+      "--pairs=BTC-USDT,ETH-USDT,SOL-USDT",
+      "--port=50051",
+      "--emit-incomplete=false"
+    ]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - candle-network
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    depends_on:
+      candles:
+        condition: service_healthy
+    environment:
+      - LOG_LEVEL=info
+    command: [
+      "./client",
+      "--server=candles:50051",
+      "--pairs=BTC-USDT,ETH-USDT",
+      "--format=json"
+    ]
+    restart: unless-stopped
+    networks:
+      - candle-network
+
+networks:
+  candle-network:
+    driver: bridge
+
+volumes:
+  candle-data: 

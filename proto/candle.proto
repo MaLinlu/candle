@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package candle;
+
+option go_package = "github.com/linluma/candle/proto";
+
+service CandleService {
+  // Subscribe to real-time candle updates for specified pairs
+  rpc Subscribe(CandleRequest) returns (stream CandleResponse);
+  
+  // Get available trading pairs
+  rpc GetAvailablePairs(Empty) returns (PairsResponse);
+}
+
+message CandleRequest {
+  repeated string pairs = 1;          // Trading pairs to subscribe to
+  bool include_incomplete = 2;        // Include incomplete candles
+}
+
+message CandleResponse {
+  string pair = 1;                    // Trading pair (e.g., "BTC-USDT")
+  int64 start_time = 2;              // Candle start time (Unix timestamp)
+  int64 end_time = 3;                // Candle end time (Unix timestamp)
+  double open = 4;                   // Opening price
+  double high = 5;                   // Highest price
+  double low = 6;                    // Lowest price
+  double close = 7;                  // Closing price
+  double volume = 8;                 // Total volume
+  int32 trade_count = 9;             // Number of trades
+  bool complete = 10;                // Whether candle is complete
+  repeated ExchangeContribution contributions = 11; // Per-exchange breakdown
+}
+
+message ExchangeContribution {
+  string exchange = 1;               // Exchange name
+  double volume = 2;                 // Volume from this exchange
+  int32 trade_count = 3;            // Trade count from this exchange
+}
+
+message Empty {}
+
+message PairsResponse {
+  repeated string pairs = 1;         // Available trading pairs
+} 
