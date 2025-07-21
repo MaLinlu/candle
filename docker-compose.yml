@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   candles:
@@ -9,12 +9,13 @@ services:
       - "50051:50051"
     environment:
       - LOG_LEVEL=info
+    volumes:
+      - ./logs:/app/logs
     command: [
       "./candles",
       "--interval=5",
       "--pairs=BTC-USDT,ETH-USDT,SOL-USDT",
       "--port=50051",
-      "--emit-incomplete=false"
     ]
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "50051"]
@@ -35,11 +36,13 @@ services:
         condition: service_healthy
     environment:
       - LOG_LEVEL=info
+    volumes:
+      - ./logs:/app/logs
     command: [
       "./client",
-      "--server=candles:50051",
-      "--pairs=BTC-USDT,ETH-USDT",
-      "--format=json"
+      "-server=candles:50051",
+      "-pairs=BTC-USDT,ETH-USDT",
+      "-duration=0s"
     ]
     restart: unless-stopped
     networks:

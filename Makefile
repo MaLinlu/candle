@@ -19,7 +19,7 @@ run-candles: build
 
 # Run client service locally
 run-client: build
-	./bin/client --server=localhost:50051 --pairs=BTC-USDT
+	./bin/client -server=localhost:50051 -pairs=BTC-USDT
 
 # Clean build artifacts
 clean:
@@ -28,11 +28,11 @@ clean:
 
 # Build Docker images
 docker-build:
-	docker-compose build
+	docker compose build
 
 # Run with Docker Compose
 docker-up: docker-build
-	docker-compose up
+	docker compose up
 
 # Install dependencies
 deps:
@@ -46,4 +46,4 @@ setup: deps proto
 run-local: build
 	./bin/candles --interval=5 --pairs=BTC-USDT,ETH-USDT,SOL-USDT &
 	sleep 2
-	./bin/client --server=localhost:50051 --pairs=BTC-USDT 
+	./bin/client -server=localhost:50051 -pairs=BTC-USDT 

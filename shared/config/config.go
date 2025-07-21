@@ -8,10 +8,9 @@ import (
 
 // CandlesConfig holds configuration for the candles service
 type CandlesConfig struct {
-	Interval       time.Duration
-	Pairs          []string
-	EmitIncomplete bool
-	Port           int
+	Interval time.Duration
+	Pairs    []string
+	Port     int
 }
 
 // ClientConfig holds configuration for the client service
@@ -24,18 +23,16 @@ type ClientConfig struct {
 // ParseCandlesFlags parses command line flags for candles service
 func ParseCandlesFlags() *CandlesConfig {
 	var (
-		interval       = flag.Int("interval", 5, "Candle interval in seconds")
-		pairs          = flag.String("pairs", "BTC-USDT,ETH-USDT,SOL-USDT", "Comma-separated trading pairs")
-		emitIncomplete = flag.Bool("emit-incomplete", false, "Emit live in-progress candles")
-		port           = flag.Int("port", 50051, "gRPC server port")
+		interval = flag.Int("interval", 5, "Candle interval in seconds")
+		pairs    = flag.String("pairs", "BTC-USDT,ETH-USDT,SOL-USDT", "Comma-separated trading pairs")
+		port     = flag.Int("port", 50051, "gRPC server port")
 	)
 	flag.Parse()
 
 	return &CandlesConfig{
-		Interval:       time.Duration(*interval) * time.Second,
-		Pairs:          strings.Split(*pairs, ","),
-		EmitIncomplete: *emitIncomplete,
-		Port:           *port,
+		Interval: time.Duration(*interval) * time.Second,
+		Pairs:    strings.Split(*pairs, ","),
+		Port:     *port,
 	}
 }
 

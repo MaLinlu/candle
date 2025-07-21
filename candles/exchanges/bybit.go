@@ -15,28 +15,23 @@ import (
 	"github.com/linluma/candle/shared/models"
 )
 
-// BinanceTradeEvent represents a trade event from Binance WebSocket
-type BinanceTradeEvent struct {
-	EventType string `json:"e"` // Event type
-	EventTime int64  `json:"E"` // Event time
-	Symbol    string `json:"s"` // Symbol
-	TradeID   int64  `json:"t"` // Trade ID
-	Price     string `json:"p"` // Price
-	Quantity  string `json:"q"` // Quantity
-	BuyerID   int64  `json:"b"` // Buyer order ID
-	SellerID  int64  `json:"a"` // Seller order ID
-	TradeTime int64  `json:"T"` // Trade time
-	IsMaker   bool   `json:"m"` // Is the buyer the market maker?
+// BybitTradeEvent represents a trade event from Bybit WebSocket
+type BybitTradeEvent struct {
+	Topic     string `json:"topic"`
+	Type      string `json:"type"`
+	Timestamp int64  `json:"ts"`
+	Data      []struct {
+		Symbol    string `json:"s"`
+		Price     string `json:"p"`
+		Size      string `json:"v"`
+		Side      string `json:"S"`
+		TradeTime int64  `json:"T"`
+		TradeID   string `json:"i"`
+	} `json:"data"`
 }
 
-// BinanceStreamMessage represents the wrapper for Binance stream messages
-type BinanceStreamMessage struct {
-	Stream string            `json:"stream"`
-	Data   BinanceTradeEvent `json:"data"`
-}
-
-// BinanceExchange implements the Exchange interface for Binance Futures
-type BinanceExchange struct {
+// BybitExchange implements the Exchange interface for Bybit
+type BybitExchange struct {
 	conn      *websocket.Conn
 	connected bool
 	pairs     []string
@@ -57,9 +52,9 @@ type BinanceExchange struct {
 	connectFunc func([]string) error
 }
 
-// NewBinanceExchange creates a new Binance exchange connector
-func NewBinanceExchange() *BinanceExchange {
-	return &BinanceExchange{
+// NewBybitExchange creates a new Bybit exchange connector
+func NewBybitExchange() *BybitExchange {
+	return &BybitExchange{
 		eventsCh:            make(chan models.Trade, 1000),
 		done:                make(chan struct{}),
 		canonicalToExchange: make(map[string]string),
@@ -77,26 +72,26 @@ func NewBinanceExchange() *BinanceExchange {
 }
 
 // Name returns the exchange name
-func (b *BinanceExchange) Name() models.ExchangeName {
-	return models.ExchangeBinance
+func (b *BybitExchange) Name() models.ExchangeName {
+	return models.ExchangeBybit
 }
 
 // SetRetryConfig configures retry behavior
-func (b *BinanceExchange) SetRetryConfig(config RetryConfig) {
+func (b *BybitExchange) SetRetryConfig(config RetryConfig) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	b.retryConfig = config
 }
 
 // GetConnectionHealth returns current connection health status
-func (b *BinanceExchange) GetConnectionHealth() ConnectionHealth {
+func (b *BybitExchange) GetConnectionHealth() ConnectionHealth {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 	return b.healthStatus
 }
 
 // Subscribe starts receiving trade data for specified pairs
-func (b *BinanceExchange) Subscribe(pairs []string) error {
+func (b *BybitExchange) Subscribe(pairs []string) error {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
@@ -104,14 +99,14 @@ func (b *BinanceExchange) Subscribe(pairs []string) error {
 		return fmt.Errorf("already connected")
 	}
 
-	binancePairs := b.convertPairsToBinanceFormat(pairs)
+	bybitPairs := b.convertPairsToBybitFormat(pairs)
 
-	if len(binancePairs) == 0 {
+	if len(bybitPairs) == 0 {
 		return fmt.Errorf("no valid pairs to subscribe to")
 	}
 
 	// Connect with retry logic
-	if err := b.connectWithRetry(binancePairs); err != nil {
+	if err := b.connectWithRetry(bybitPairs); err != nil {
 		return fmt.Errorf("failed to connect after retries: %w", err)
 	}
 
@@ -121,12 +116,12 @@ func (b *BinanceExchange) Subscribe(pairs []string) error {
 	// Start reading messages automatically
 	go b.readMessages()
 
-	log.Printf("Successfully connected to Binance WebSocket for pairs: %v", pairs)
+	log.Printf("Successfully connected to Bybit WebSocket for pairs: %v", pairs)
 	return nil
 }
 
 // connectWithRetry implements exponential backoff with storm protection
-func (b *BinanceExchange) connectWithRetry(binancePairs []string) error {
+func (b *BybitExchange) connectWithRetry(bybitPairs []string) error {
 	// Create backoff strategy
 	backoffStrategy := backoff.NewExponentialBackOff()
 	backoffStrategy.InitialInterval = b.retryConfig.InitialDelay
@@ -150,14 +145,14 @@ func (b *BinanceExchange) connectWithRetry(binancePairs []string) error {
 		// Attempt connection
 		var err error
 		if b.connectFunc != nil {
-			err = b.connectFunc(binancePairs)
+			err = b.connectFunc(bybitPairs)
 		} else {
-			err = b.connect(binancePairs)
+			err = b.connect(bybitPairs)
 		}
 
 		if err != nil {
 			b.recordFailure()
-			log.Printf("Binance connection attempt failed (attempt %d): %v", b.healthStatus.RetryAttempt+1, err)
+			log.Printf("Bybit connection attempt failed (attempt %d): %v", b.healthStatus.RetryAttempt+1, err)
 			return err
 		}
 
@@ -169,17 +164,11 @@ func (b *BinanceExchange) connectWithRetry(binancePairs []string) error {
 }
 
 // connect performs the actual WebSocket connection
-func (b *BinanceExchange) connect(binancePairs []string) error {
-	// Build WebSocket URL with streams
-	streams := make([]string, len(binancePairs))
-	for i, pair := range binancePairs {
-		streams[i] = pair + "@trade"
-	}
+func (b *BybitExchange) connect(bybitPairs []string) error {
+	// Bybit uses a different WebSocket URL structure
+	wsURL := "wss://stream.bybit.com/v5/public/linear"
 
-	streamParam := strings.Join(streams, "/")
-	wsURL := fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s", streamParam)
-
-	log.Printf("Connecting to Binance WebSocket: %s", wsURL)
+	log.Printf("Connecting to Bybit WebSocket: %s", wsURL)
 
 	// Connect to WebSocket
 	dialer := websocket.Dialer{
@@ -193,11 +182,33 @@ func (b *BinanceExchange) connect(binancePairs []string) error {
 	}
 
 	b.conn = conn
+
+	// Subscribe to trade streams after connection
+	return b.subscribeToStreams(bybitPairs)
+}
+
+// subscribeToStreams sends subscription messages for trading pairs
+func (b *BybitExchange) subscribeToStreams(bybitPairs []string) error {
+	topics := make([]string, len(bybitPairs))
+	for i, pair := range bybitPairs {
+		topics[i] = fmt.Sprintf("publicTrade.%s", pair)
+	}
+
+	subscribeMsg := map[string]interface{}{
+		"op":   "subscribe",
+		"args": topics,
+	}
+
+	if err := b.conn.WriteJSON(subscribeMsg); err != nil {
+		return fmt.Errorf("failed to send subscription message: %w", err)
+	}
+
+	log.Printf("Subscribed to Bybit topics: %v", topics)
 	return nil
 }
 
 // isInStormMode checks if we should enter storm protection mode
-func (b *BinanceExchange) isInStormMode() bool {
+func (b *BybitExchange) isInStormMode() bool {
 	now := time.Now()
 	oneMinuteAgo := now.Add(-time.Minute)
 
@@ -216,14 +227,14 @@ func (b *BinanceExchange) isInStormMode() bool {
 
 	if recentFailures >= b.retryConfig.StormThreshold {
 		if !b.healthStatus.InStormMode {
-			log.Printf("⚠️ Binance entering storm mode: %d failures in last minute", recentFailures)
+			log.Printf("⚠️ Bybit entering storm mode: %d failures in last minute", recentFailures)
 			b.healthStatus.InStormMode = true
 		}
 		return true
 	}
 
 	if b.healthStatus.InStormMode {
-		log.Printf("✅ Binance exiting storm mode")
+		log.Printf("✅ Bybit exiting storm mode")
 		b.healthStatus.InStormMode = false
 	}
 
@@ -231,7 +242,7 @@ func (b *BinanceExchange) isInStormMode() bool {
 }
 
 // recordFailure records a connection failure
-func (b *BinanceExchange) recordFailure() {
+func (b *BybitExchange) recordFailure() {
 	now := time.Now()
 	b.healthStatus.FailureCount++
 	b.healthStatus.ConsecutiveFails++
@@ -241,28 +252,28 @@ func (b *BinanceExchange) recordFailure() {
 }
 
 // recordSuccess records a successful connection
-func (b *BinanceExchange) recordSuccess() {
+func (b *BybitExchange) recordSuccess() {
 	b.healthStatus.ConsecutiveFails = 0
 	b.healthStatus.RetryAttempt = 0
 	b.healthStatus.InStormMode = false
-	log.Printf("✅ Binance connection successful after %d attempts", b.healthStatus.FailureCount)
+	log.Printf("✅ Bybit connection successful after %d attempts", b.healthStatus.FailureCount)
 }
 
-// convertPairsToBinanceFormat converts pairs to Binance format
-func (b *BinanceExchange) convertPairsToBinanceFormat(pairs []string) []string {
-	//TODO: validate pair from api
-	binancePairs := make([]string, len(pairs))
+// convertPairsToBybitFormat converts pairs to Bybit format
+func (b *BybitExchange) convertPairsToBybitFormat(pairs []string) []string {
+	bybitPairs := make([]string, len(pairs))
 	for i, pair := range pairs {
+		// Bybit uses same format as Binance: remove hyphen, uppercase
 		exchangeSymbol := strings.ToUpper(strings.ReplaceAll(pair, "-", ""))
 		b.exchangeToCanonical[exchangeSymbol] = pair
 		b.canonicalToExchange[pair] = exchangeSymbol
-		binancePairs[i] = strings.ToLower(exchangeSymbol)
+		bybitPairs[i] = exchangeSymbol // Keep uppercase for Bybit
 	}
-	return binancePairs
+	return bybitPairs
 }
 
-// FromExchangeSymbol converts Binance symbol to canonical format (O(1) lookup)
-func (b *BinanceExchange) FromExchangeSymbol(exchangeSymbol string) (string, error) {
+// FromExchangeSymbol converts Bybit symbol to canonical format (O(1) lookup)
+func (b *BybitExchange) FromExchangeSymbol(exchangeSymbol string) (string, error) {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 
@@ -274,8 +285,8 @@ func (b *BinanceExchange) FromExchangeSymbol(exchangeSymbol string) (string, err
 	return canonical, nil
 }
 
-// Disconnect closes the Binance connection
-func (b *BinanceExchange) Disconnect() error {
+// Disconnect closes the Bybit connection
+func (b *BybitExchange) Disconnect() error {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
@@ -290,7 +301,7 @@ func (b *BinanceExchange) Disconnect() error {
 	if b.conn != nil {
 		err := b.conn.Close()
 		if err != nil {
-			log.Printf("Error closing Binance WebSocket connection: %v", err)
+			log.Printf("Error closing Bybit WebSocket connection: %v", err)
 		}
 		b.conn = nil
 	}
@@ -299,108 +310,123 @@ func (b *BinanceExchange) Disconnect() error {
 	close(b.eventsCh)
 
 	b.connected = false
-	log.Printf("Disconnected from Binance WebSocket")
+	log.Printf("Disconnected from Bybit WebSocket")
 	return nil
 }
 
 // IsConnected returns connection status
-func (b *BinanceExchange) IsConnected() bool {
+func (b *BybitExchange) IsConnected() bool {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 	return b.connected
 }
 
 // Events returns the channel for receiving trade events
-func (b *BinanceExchange) Events() <-chan models.Trade {
+func (b *BybitExchange) Events() <-chan models.Trade {
 	return b.eventsCh
 }
 
-// readMessages reads and processes messages from Binance WebSocket
-func (b *BinanceExchange) readMessages() {
+// readMessages reads and processes messages from Bybit WebSocket
+func (b *BybitExchange) readMessages() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Binance WebSocket reader panic recovered: %v", r)
+			log.Printf("Bybit WebSocket reader panic recovered: %v", r)
 		}
 	}()
 
 	for {
 		select {
 		case <-b.done:
-			log.Printf("Binance WebSocket reader stopping")
+			log.Printf("Bybit WebSocket reader stopping")
 			return
 		default:
 			// Read message from WebSocket
 			_, message, err := b.conn.ReadMessage()
 			if err != nil {
 				// Log error directly - future enhancement: add centralized error handling, metrics, and alerting
-				log.Printf("⚠️ Binance WebSocket read error: %v", err)
+				log.Printf("⚠️ Bybit WebSocket read error: %v", err)
 
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("Binance WebSocket connection closed unexpectedly: %v", err)
+					log.Printf("Bybit WebSocket connection closed unexpectedly: %v", err)
 				}
 				return
 			}
 
 			// Process the message
 			if err := b.processMessage(message); err != nil {
-				log.Printf("Error processing Binance message: %v", err)
+				log.Printf("Error processing Bybit message: %v", err)
 			}
 		}
 	}
 }
 
 // processMessage processes a raw WebSocket message
-func (b *BinanceExchange) processMessage(message []byte) error {
-	var streamMessage BinanceStreamMessage
-	if err := json.Unmarshal(message, &streamMessage); err != nil {
-		return fmt.Errorf("failed to unmarshal stream message: %w", err)
+func (b *BybitExchange) processMessage(message []byte) error {
+	var tradeEvent BybitTradeEvent
+	if err := json.Unmarshal(message, &tradeEvent); err != nil {
+		return fmt.Errorf("failed to unmarshal trade message: %w", err)
 	}
 
-	// Convert to normalized trade
-	trade, err := b.normalizedTradeEvent(streamMessage.Data)
-	if err != nil {
-		return fmt.Errorf("failed to convert trade: %w", err)
+	// Skip non-trade messages
+	if tradeEvent.Topic == "" || !strings.HasPrefix(tradeEvent.Topic, "publicTrade.") {
+		return nil
 	}
 
-	// Send to events channel
-	select {
-	case b.eventsCh <- trade:
-	default:
-		log.Printf("Events channel full, dropping Binance trade for %s", trade.Pair)
+	// Process each trade in the data array
+	for _, trade := range tradeEvent.Data {
+		normalizedTrade, err := b.normalizedTradeEvent(trade)
+		if err != nil {
+			log.Printf("Error converting Bybit trade: %v", err)
+			continue
+		}
+
+		// Send to events channel
+		select {
+		case b.eventsCh <- normalizedTrade:
+		default:
+			log.Printf("Events channel full, dropping Bybit trade for %s", normalizedTrade.Pair)
+		}
 	}
 
 	return nil
 }
 
-// normalizedTradeEvent converts BinanceTradeEvent to normalized Trade
-func (b *BinanceExchange) normalizedTradeEvent(event BinanceTradeEvent) (models.Trade, error) {
+// normalizedTradeEvent converts Bybit trade data to normalized Trade
+func (b *BybitExchange) normalizedTradeEvent(tradeData struct {
+	Symbol    string `json:"s"`
+	Price     string `json:"p"`
+	Size      string `json:"v"`
+	Side      string `json:"S"`
+	TradeTime int64  `json:"T"`
+	TradeID   string `json:"i"`
+}) (models.Trade, error) {
 	// Parse price
-	price, err := strconv.ParseFloat(event.Price, 64)
+	price, err := strconv.ParseFloat(tradeData.Price, 64)
 	if err != nil {
-		return models.Trade{}, fmt.Errorf("invalid price %s: %w", event.Price, err)
+		return models.Trade{}, fmt.Errorf("invalid price %s: %w", tradeData.Price, err)
 	}
 
 	// Parse volume
-	volume, err := strconv.ParseFloat(event.Quantity, 64)
+	volume, err := strconv.ParseFloat(tradeData.Size, 64)
 	if err != nil {
-		return models.Trade{}, fmt.Errorf("invalid quantity %s: %w", event.Quantity, err)
+		return models.Trade{}, fmt.Errorf("invalid size %s: %w", tradeData.Size, err)
 	}
 
 	// Convert symbol back to canonical format
-	canonicalSymbol, err := b.FromExchangeSymbol(event.Symbol)
+	canonicalSymbol, err := b.FromExchangeSymbol(tradeData.Symbol)
 	if err != nil {
-		return models.Trade{}, fmt.Errorf("failed to convert symbol %s: %w", event.Symbol, err)
+		return models.Trade{}, fmt.Errorf("failed to convert symbol %s: %w", tradeData.Symbol, err)
 	}
 
 	// Convert timestamp
-	timestamp := time.Unix(0, event.TradeTime*int64(time.Millisecond))
+	timestamp := time.Unix(0, tradeData.TradeTime*int64(time.Millisecond))
 
 	return models.Trade{
-		Exchange:  models.ExchangeBinance,
+		Exchange:  models.ExchangeBybit,
 		Pair:      canonicalSymbol,
 		Price:     price,
 		Volume:    volume,
 		Timestamp: timestamp,
-		TradeID:   fmt.Sprintf("%d", event.TradeID),
+		TradeID:   tradeData.TradeID,
 	}, nil
 }

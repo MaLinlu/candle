@@ -1,15 +1,25 @@
 # Real-Time Candlestick (OHLC) Service
 
-A real-time candlestick service that connects to multiple cryptocurrency exchanges (Binance, Coinbase, OKX), aggregates trade data, builds OHLC candles, and streams them to clients via gRPC.
+A real-time candlestick service that connects to multiple cryptocurrency exchanges (Binance, Bybit, OKX), aggregates trade data from perpetual contracts, builds OHLC candles, and streams them to clients via gRPC.
 
 ## 🚀 Features
 
-- **Multi-Exchange Integration**: Connects to Binance, Coinbase, and OKX simultaneously
+- **Multi-Exchange Integration**: Connects to Binance, Bybit, and OKX simultaneously for perpetual contracts
 - **Real-time Data**: WebSocket connections for live trade data
 - **Trade Consolidation**: Aggregates trades across exchanges using volume-weighted pricing
 - **Configurable Intervals**: Build candles for any time interval (default: 5 seconds)
 - **gRPC Streaming**: High-performance real-time candle streaming
+- **Retry with Backoff and Storm Control**: Robust reconnection logic with exponential backoff and storm protection for exchange connections
+- **Volume and Decomposition by Exchange**: Candle data includes per-exchange volume and trade breakdowns for transparency and analytics
 - **Docker Support**: Full containerization with Docker Compose
+- **Support for Diverse Asset Types and Additional Pairs**: The architecture is designed to be extensible for spot, futures, and other asset types, as well as for adding more trading pairs in the future.
+
+## 📝 Assumptions
+
+- **Perpetual Contracts Only**: The service assumes all integrated exchanges and pairs are perpetual futures (perps).
+- **Top 3 Volume Perps CEXs**: Binance, Bybit, and OKX are chosen as the top 3 by perpetual contract trading volume.
+- **First Incomplete Interval Ignored**: The first interval after service start is ignored if incomplete; only fully-formed candles are emitted.
+- **No Candle if No Trade**: If there are no trades for a pair in an interval, no candle is emitted for that interval.
 
 ## 📋 Prerequisites
 
@@ -71,7 +81,6 @@ make run-client
 Options:
   --interval int        Candle interval in seconds (default: 5)
   --pairs string        Comma-separated trading pairs (default: "BTC-USDT,ETH-USDT,SOL-USDT")
-  --emit-incomplete     Emit live in-progress candles (default: false)
   --port int           gRPC server port (default: 50051)
 ```
 
@@ -81,9 +90,9 @@ Options:
 ./bin/client [options]
 
 Options:
-  --server string      Candles service address (default: "localhost:50051")
-  --pairs string       Comma-separated pairs to subscribe (default: "BTC-USDT")
-  --format string      Output format: json|table (default: "json")
+  -server string       Candles service address (default: "localhost:50051")
+  -pairs string        Comma-separated pairs to subscribe (default: "BTC-USDT,ETH-USDT")
+  -duration duration   Duration to run the demo (default: 30s)
 ```
 
 ## 🏗️ Development
@@ -109,22 +118,21 @@ make clean
 ```
 candle/
 ├── candles/                 # Candles service
-│   ├── main.go             # Service entrypoint
-│   ├── exchanges/          # Exchange connectors
-│   ├── aggregator/         # Trade consolidation
-│   ├── ohlc/              # OHLC candle builder
+│   ├── main.go             # Service entrypoint with direct orchestration
+│   ├── exchanges/          # Exchange connectors with self-contained symbol conversion
+│   ├── ohlc/              # OHLC candle builder with direct trade processing
 │   ├── server/            # gRPC server
 │   └── Dockerfile
 ├── client/                 # Client service
 │   ├── main.go            # Client entrypoint
-│   ├── subscriber/        # gRPC client
 │   └── Dockerfile
 ├── proto/                 # Shared protobuf definitions
-├── shared/               # Common utilities
+├── shared/               # Common utilities and models
+├── logs/                 # Application logs (gitignored)
+├── bin/                  # Built binaries (gitignored)
 └── docker-compose.yml    # Service orchestration
 ```
 
-## 📡 API Usage
 
 ### gRPC Service Definition
 
@@ -135,70 +143,38 @@ service CandleService {
 }
 ```
 
-### Subscribe to Candles
-
-```go
-// Connect to service
-conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
-client := proto.NewCandleServiceClient(conn)
-
-// Subscribe to BTC and ETH
-stream, err := client.Subscribe(context.Background(), &proto.CandleRequest{
-    Pairs: []string{"BTC-USDT", "ETH-USDT"},
-    IncludeIncomplete: false,
-})
-
-// Receive candles
-for {
-    candle, err := stream.Recv()
-    if err != nil {
-        break
-    }
-    fmt.Printf("Received candle: %+v\n", candle)
-}
-```
-
-## 🐳 Docker Deployment
-
-### Production Configuration
-
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
-services:
-  candles:
-    image: candle/candles:latest
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-    environment:
-      - LOG_LEVEL=warn
-```
-
 ### Health Checks
 
 Both services include health checks:
 - **Candles**: gRPC port connectivity on 50051
 - **Client**: Depends on candles service health
 
-## 📊 Monitoring
-
-### Available Metrics
-
-- Trade ingestion rate per exchange
-- Candle generation latency
-- Active gRPC connections
-- Exchange connection status
-- Error rates and types
-
 ### Logging
 
-Services use structured JSON logging with configurable levels:
+Services use structured JSON logging with configurable levels. Logs are stored in the `logs/` directory:
 
 ```bash
+# View server logs
+tail -f logs/server_test.log
+
+# View client logs  
+tail -f logs/client_test.log
+
+# View Docker logs
+docker-compose logs -f candles
+docker-compose logs -f client
+```
+
+### Log Directory Structure
+
+```
+logs/
+├── server_test.log     # Test server logs
+├── client_test.log     # Test client logs
+└── ...                 # Other application logs
+```
+
+The `logs/` directory is gitignored to prevent committing log files.
 # Set log level
 export LOG_LEVEL=debug
 ```
@@ -212,62 +188,19 @@ make test
 # Run with coverage
 go test -cover ./...
 
-# Integration tests
-go test -tags=integration ./...
 ```
 
-## 🔍 Troubleshooting
-
-### Common Issues
-
-1. **Protocol Buffer compilation fails**
-   ```bash
-   # Ensure protoc is installed and in PATH
-   protoc --version
-   
-   # Reinstall Go plugins
-   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-   ```
-
-2. **Exchange connection issues**
-   ```bash
-   # Check network connectivity
-   # Verify exchange API status
-   # Review logs for authentication errors
-   ```
-
-3. **gRPC connection refused**
-   ```bash
-   # Ensure candles service is running
-   # Check port availability: netstat -ln | grep 50051
-   # Verify firewall settings
-   ```
-
-## 🚧 Current Status
-
-This is a scaffold implementation. The following components need implementation:
-
-- [ ] Exchange WebSocket connections
-- [ ] Trade consolidation algorithm  
-- [ ] OHLC candle building logic
-- [ ] gRPC server methods
-- [ ] Client subscription handling
-- [ ] Error handling and reconnection
-- [ ] Metrics and monitoring
-- [ ] Comprehensive testing
+### 📋 Future Enhancements
+- **Production Features**: Monitoring, metrics, circuit breakers
+- **Rate Limit Protection**: Automatic detection and handling of exchange rate limits
+- **Historical Candle**: Ability to persist and backfill candles from historical data
+- **Alerting and Notification**: Real-time alerts for connection loss, abnormal trade activity, or system errors
+- **Diverse Asset Types and More Pairs**: Extend support to spot, options, and additional trading pairs beyond the initial set.
 
 ## 📄 License
 
 This project is licensed under the MIT License.
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
 
 ## 📞 Support
 
