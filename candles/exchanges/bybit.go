@@ -340,8 +340,18 @@ func (b *BybitExchange) readMessages() {
 			log.Printf("Bybit WebSocket reader stopping")
 			return
 		default:
+			// Check if connection is still valid
+			b.mutex.RLock()
+			if b.conn == nil {
+				b.mutex.RUnlock()
+				log.Printf("Bybit WebSocket connection is nil, stopping reader")
+				return
+			}
+			conn := b.conn // Get a local copy while holding the lock
+			b.mutex.RUnlock()
+
 			// Read message from WebSocket
-			_, message, err := b.conn.ReadMessage()
+			_, message, err := conn.ReadMessage()
 			if err != nil {
 				// Log error directly - future enhancement: add centralized error handling, metrics, and alerting
 				log.Printf("⚠️ Bybit WebSocket read error: %v", err)

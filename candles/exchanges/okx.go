@@ -344,8 +344,18 @@ func (o *OKXExchange) readMessages() {
 			log.Printf("OKX WebSocket reader stopping")
 			return
 		default:
+			// Check if connection is still valid
+			o.mutex.RLock()
+			if o.conn == nil {
+				o.mutex.RUnlock()
+				log.Printf("OKX WebSocket connection is nil, stopping reader")
+				return
+			}
+			conn := o.conn // Get a local copy while holding the lock
+			o.mutex.RUnlock()
+
 			// Read message from WebSocket
-			_, message, err := o.conn.ReadMessage()
+			_, message, err := conn.ReadMessage()
 			if err != nil {
 				// Log error directly - future enhancement: add centralized error handling, metrics, and alerting
 				log.Printf("⚠️ OKX WebSocket read error: %v", err)
