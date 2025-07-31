@@ -13,10 +13,10 @@ import (
 // CandleServer implements the gRPC CandleService
 type CandleServer struct {
 	proto.UnimplementedCandleServiceServer
-	candleCh    <-chan models.Candle
-	mu          sync.RWMutex
-	subscribers map[string]*subscriber
-	nextID      int
+	candleCh       <-chan models.Candle
+	mu             sync.RWMutex
+	subscribers    map[string]*subscriber
+	nextID         int
 	availablePairs []string
 }
 
@@ -32,9 +32,9 @@ type subscriber struct {
 // NewCandleServer creates a new gRPC candle server
 func NewCandleServer(candleCh <-chan models.Candle, availablePairs []string) *CandleServer {
 	server := &CandleServer{
-		candleCh:    candleCh,
-		subscribers: make(map[string]*subscriber),
-		nextID:      1,
+		candleCh:       candleCh,
+		subscribers:    make(map[string]*subscriber),
+		nextID:         1,
 		availablePairs: availablePairs,
 	}
 

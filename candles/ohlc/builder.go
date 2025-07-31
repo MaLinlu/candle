@@ -79,9 +79,6 @@ func (b *Builder) Stop() {
 
 	// Emit any remaining candles before closing channels
 	for _, candle := range b.candles {
-		// if !candle.Complete {
-		// 	candle.Complete = true
-		// }
 		select {
 		case b.candleCh <- *candle:
 			log.Printf("✅ Final candle %s: O=%.2f H=%.2f L=%.2f C=%.2f V=%.6f T=%d",
@@ -155,7 +152,8 @@ func (b *Builder) updateCandle(candle *models.Candle, trade models.Trade) {
 	if trade.Price < candle.Low {
 		candle.Low = trade.Price
 	}
-	candle.Close = trade.Price // Most recent trade becomes close
+	
+	candle.Close = trade.Price // Most recent trade becomes close, out of order trade may cause this to be incorrect
 
 	// Update volume and trade count
 	candle.Volume += trade.Volume

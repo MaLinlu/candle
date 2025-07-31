@@ -6,7 +6,7 @@ A real-time candlestick service that connects to multiple cryptocurrency exchang
 
 - **Multi-Exchange Integration**: Connects to Binance, Bybit, and OKX simultaneously for perpetual contracts
 - **Real-time Data**: WebSocket connections for live trade data
-- **Trade Consolidation**: Aggregates trades across exchanges using volume-weighted pricing
+- **Trade Consolidation**: Aggregates trades across exchanges
 - **Configurable Intervals**: Build candles for any time interval (default: 5 seconds)
 - **gRPC Streaming**: High-performance real-time candle streaming
 - **Retry with Backoff and Storm Control**: Robust reconnection logic with exponential backoff and storm protection for exchange connections
@@ -20,6 +20,75 @@ A real-time candlestick service that connects to multiple cryptocurrency exchang
 - **Top 3 Volume Perps CEXs**: Binance, Bybit, and OKX are chosen as the top 3 by perpetual contract trading volume.
 - **First Incomplete Interval Ignored**: The first interval after service start is ignored if incomplete; only fully-formed candles are emitted.
 - **No Candle if No Trade**: If there are no trades for a pair in an interval, no candle is emitted for that interval.
+
+## 🏛️ System Architecture Overview
+
+The service follows a multi-layer architecture for real-time candlestick generation:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Client Applications                       │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ gRPC Streaming
+┌─────────────────────────────────────────────────────────────┐
+│                   Candles Service                           │
+│  ┌─────────────┐    ┌─────────────┐                        │
+│  │ gRPC Server │    │ OHLC Builder│                        │
+│  │             │◄───┤             │ ◄───                   |
+│  └─────────────┘    └─────────────┘      |                  │
+└──────────────────────────────────────────┬──────────────────┘
+                                           │ Trade Channel
+┌─────────────────────────────────────────────────────────────┐
+│                Exchange Connectors                          │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐      │
+│  │   Binance   │    │    Bybit    │    │     OKX     │      │
+│  │  WebSocket  │    │  WebSocket  │    │  WebSocket  │      │
+│  └─────────────┘    └─────────────┘    └─────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Trade Flow
+
+1. **Exchange Connection**: WebSocket connections to Binance, Bybit, and OKX perpetual contracts
+2. **Trade Normalization**: Raw trade data is converted to standardized format with pair mapping
+3. **Trade Aggregation**: All trades are routed through a central trade channel
+4. **OHLC Building**: Trades are grouped by time intervals and converted to OHLC candles
+5. **Candle Completion**: Candles are marked complete at interval boundaries and streamed to clients
+6. **gRPC Streaming**: Completed candles are delivered to subscribed clients in real-time
+
+## 📊 Output Example
+
+```json
+{
+  "pair": "BTC-USDT",
+  "start_time": "2024-01-15T10:05:00Z",
+  "end_time": "2024-01-15T10:05:05Z",
+  "open": 42350.50,
+  "high": 42375.20,
+  "low": 42340.10,
+  "close": 42368.75,
+  "volume": 15.247689,
+  "trade_count": 127,
+  "complete": true,
+  "contributions": [
+    {
+      "exchange": "binance",
+      "volume": 8.123456,
+      "trade_count": 68
+    },
+    {
+      "exchange": "bybit", 
+      "volume": 4.567890,
+      "trade_count": 35
+    },
+    {
+      "exchange": "okx",
+      "volume": 2.556343,
+      "trade_count": 24
+    }
+  ]
+}
+```
 
 ## 📋 Prerequisites
 
@@ -149,35 +218,6 @@ Both services include health checks:
 - **Candles**: gRPC port connectivity on 50051
 - **Client**: Depends on candles service health
 
-### Logging
-
-Services use structured JSON logging with configurable levels. Logs are stored in the `logs/` directory:
-
-```bash
-# View server logs
-tail -f logs/server_test.log
-
-# View client logs  
-tail -f logs/client_test.log
-
-# View Docker logs
-docker-compose logs -f candles
-docker-compose logs -f client
-```
-
-### Log Directory Structure
-
-```
-logs/
-├── server_test.log     # Test server logs
-├── client_test.log     # Test client logs
-└── ...                 # Other application logs
-```
-
-The `logs/` directory is gitignored to prevent committing log files.
-# Set log level
-export LOG_LEVEL=debug
-```
 
 ## 🧪 Testing
 
@@ -189,13 +229,24 @@ make test
 go test -cover ./...
 
 ```
+## ⚠️ Current Limitations
 
-### 📋 Future Enhancements
-- **Production Features**: Monitoring, metrics, circuit breakers
-- **Rate Limit Protection**: Automatic detection and handling of exchange rate limits
-- **Historical Candle**: Ability to persist and backfill candles from historical data
-- **Alerting and Notification**: Real-time alerts for connection loss, abnormal trade activity, or system errors
-- **Diverse Asset Types and More Pairs**: Extend support to spot, options, and additional trading pairs beyond the initial set.
+- **No Persistence**: Candles are not stored; only real-time streaming is supported
+- **No Historical Replays**: Cannot backfill or replay historical candle data
+- **No Horizontal Scaling**: Single-instance deployment without Redis/Kafka buffering
+- **No Built-in Monitoring**: No metrics, health dashboards, or observability tools
+- **Memory-Only State**: All incomplete candles are stored in memory and lost on restart
+- **No Rate Limit Handling**: Exchange rate limits may cause connection drops
+- **Out-of-Order Trades**: Late-arriving trades may affect candle accuracy (close price)
+
+
+## 🚀 Future Enhancements
+
+- **Monitoring & Observability**: Implement Prometheus metrics, Grafana dashboards, and distributed tracing to enhance system visibility and performance monitoring.
+- **Scalability**: Introduce horizontal scaling with Redis/Kafka-based message buffering to support multi-instance deployments and improve load distribution.
+- **Data Persistency & Replay**: Integrate a database solution like PostgreSQL with TimescaleDB or ClickHouse for candle persistence, enabling historical data queries and replay capabilities.
+- **Edge Case Handling**: Develop robust mechanisms to handle missing, out-of-order, and empty candles, ensuring data accuracy and reliability in all scenarios.
+
 
 ## 📄 License
 

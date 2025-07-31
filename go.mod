@@ -7,8 +7,8 @@ toolchain go1.23.11
 require google.golang.org/grpc v1.73.0
 
 require (
-	github.com/benbjohnson/clock v1.3.5 // indirect
-	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
+	github.com/benbjohnson/clock v1.3.5
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
